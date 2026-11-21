@@ -1,6 +1,6 @@
 # dsh-chat-mode
 
-把 [DeepSeek Harness](https://github.com/deepseek-ai) 的顶栏改成 `聊天 / 工作` 双模式，**聊天模式内嵌 chat.deepseek.com 官方网页版**，走你的网页版账号，不消耗 API 余额。
+把 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的顶栏改成 `聊天 / 工作` 双模式，**聊天模式内嵌 chat.deepseek.com 官方网页版**，走你的网页版账号，不消耗 API 余额。
 
 工作模式是原封不动的 Harness 会话、工具与视图。
 
