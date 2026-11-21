@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "对话模式",
+    "description": "在顶栏增加「聊天 / 工作」切换。聊天模式用桌面端 webview 内嵌 chat.deepseek.com 官方网页版，自动收起侧边栏并记住登录态，走网页版账号而不消耗 API 余额。"
+  }
+}

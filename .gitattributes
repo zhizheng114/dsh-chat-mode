@@ -1,0 +1,17 @@
+# Normalize line endings in the repository to LF, regardless of the platform
+# that committed them. The plugin ships plain source files that run through a
+# Node-based loader, so a mixed-EOL checkout is a needless source of noise.
+* text=auto eol=lf
+
+# Explicit types, so a future contributor's editor config cannot renormalize them.
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.svg   text eol=lf
+
+# Anything binary should never be touched.
+*.png   binary
+*.ico   binary
+*.jpg   binary

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Chat mode",
+    "description": "Adds a Chat/Work switch to the top bar. Chat mode embeds the official chat.deepseek.com web chat in a Desktop webview panel, collapses the sidebar and remembers the web sign-in across restarts, using the web account instead of API credit."
+  }
+}
