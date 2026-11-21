@@ -58,6 +58,24 @@ window.__ModuleLoader__.load({
     /** Origin prefix, used to tell the real page from the about:blank bootstrap. */
     const CHAT_ORIGIN = 'https://chat.deepseek.com';
     const CHAT_HOSTS = ['chat.deepseek.com'];
+    /**
+     * Hosts an OAuth provider may legitimately send us to during sign-in.
+     *
+     * The web app signs in through a popup, and the main process denies every
+     * popup a guest opens (it reports the URL here instead of allowing a window).
+     * Re-hosting that URL as a top-level navigation inside the same guest is what
+     * keeps the flow working: the provider's redirect back to chat.deepseek.com
+     * then lands in the guest that holds the partition, so the new session is
+     * visible to the app. Sending the popup to the system browser cannot work —
+     * that is a different browsing context with different storage, so the guest
+     * never sees the sign-in.
+     */
+    const AUTH_HOSTS = [
+      'accounts.google.com',
+      'appleid.apple.com',
+      'open.weixin.qq.com',
+      'login.microsoftonline.com',
+    ];
     const CHAT = 'chat';
     const WORK = 'work';
     const MODES = [CHAT, WORK];
@@ -101,6 +119,8 @@ window.__ModuleLoader__.load({
         'panel.openExternal': 'Open in browser',
         'panel.note': 'Uses your DeepSeek web account, not API credit. The sign-in is remembered across restarts and is stored on this device only.',
         'panel.forget': 'Forget saved sign-in',
+        'panel.stuck': 'Back to chat',
+        'panel.stuckHint': 'Return to chat.deepseek.com after signing in.',
       },
       zh: {
         'mode.chat': '聊天',
@@ -115,6 +135,8 @@ window.__ModuleLoader__.load({
         'panel.openExternal': '在浏览器打开',
         'panel.note': '使用你的 DeepSeek 网页版账号，不消耗 API 余额。登录态会被记住（仅存于本机），重启后无需重登。',
         'panel.forget': '清除已保存的登录',
+        'panel.stuck': '回到对话',
+        'panel.stuckHint': '登录完成后回到 chat.deepseek.com。',
       },
     };
 
@@ -348,6 +370,9 @@ window.__ModuleLoader__.load({
     function EmbeddedChat() {
       useLocaleRevision();
       const hostRef = React.useRef(null);
+      // The live guest element, so toolbar controls (notably "back to chat") can
+      // drive it without another remount.
+      const guestRef = React.useRef(null);
       // Bumping this remounts the whole component, which re-runs the attach
       // effect from scratch: the only reliable retry, because a failed attach
       // may have already consumed its lease.
@@ -415,6 +440,7 @@ window.__ModuleLoader__.load({
             }
             lease = reservation.lease;
             element = document.createElement('webview');
+            guestRef.current = element;
             element.className = 'dcx-web';
             element.setAttribute('name', reservation.lease);
             element.setAttribute('partition', reservation.partition);
@@ -435,6 +461,25 @@ window.__ModuleLoader__.load({
                 /* mid-navigation */
               }
               if (!current.startsWith(CHAT_ORIGIN)) {
+                // The about:blank bootstrap has no URL worth keeping, so this is
+                // where the first real navigation is issued. But a sign-in flow
+                // (or any other same-guest page the user was sent to) also reports
+                // a non-chat URL here, and bouncing it back to the chat home would
+                // break the flow outright: the provider page would reload the
+                // moment it finished loading, before the user could authenticate.
+                let hostname = '';
+                try {
+                  hostname = new URL(current).hostname;
+                } catch {
+                  /* about:blank and friends: no host, treat as bootstrap */
+                }
+                const isBootstrap = current === '' || current.startsWith('about:');
+                if (!isBootstrap && (AUTH_HOSTS.includes(hostname) || CHAT_HOSTS.includes(hostname))) {
+                  // Let the page the main process routed us to settle. Capture
+                  // still runs, so a completed sign-in is persisted.
+                  if (snapshotTimer === undefined && !cancelled) snapshotTimer = setInterval(capture, 4000);
+                  return;
+                }
                 setState('ready');
                 let navigating;
                 try {
@@ -491,15 +536,39 @@ window.__ModuleLoader__.load({
                 });
             });
 
-            // Guests cannot open windows: the main process intercepts every
-            // popup and reports it here instead, so links out stay in-app-safe.
+            // Guests cannot open windows: the main process intercepts every popup
+            // and reports the URL here instead.
+            //
+            // Two kinds of request arrive on this channel and they need opposite
+            // handling:
+            //   - A sign-in popup (Google / Apple / WeChat). It must NOT go to the
+            //     system browser: the provider's redirect back to chat.deepseek.com
+            //     has to land in this guest, because only this guest holds the
+            //     partition the app reads. Navigate the guest itself instead, so the
+            //     whole flow happens in one browsing context.
+            //   - Anything else (a documentation link, a source citation) belongs
+            //     outside the app, so it goes to the system browser.
             disposeOpen = bridge.onOpenRequested(reservation.lease, (url) => {
+              let target;
               try {
                 if (!URL.canParse(url)) return;
-                if (!CHAT_HOSTS.includes(new URL(url).hostname)) openExternal(url);
+                target = new URL(url);
               } catch {
-                /* ignore malformed targets */
+                return;
               }
+              if (CHAT_HOSTS.includes(target.hostname)) return;
+              if (AUTH_HOSTS.includes(target.hostname)) {
+                if (element === undefined) return;
+                try {
+                  const navigating = element.loadURL(target.href);
+                  Promise.resolve(navigating).catch(() => openExternal(target.href));
+                } catch {
+                  // The guest rejected the navigation; the browser still can.
+                  openExternal(target.href);
+                }
+                return;
+              }
+              openExternal(url);
             });
 
             host.appendChild(element);
@@ -517,6 +586,7 @@ window.__ModuleLoader__.load({
           // localStorage with it.
           capture();
           cancelled = true;
+          guestRef.current = null;
           if (snapshotTimer !== undefined) clearInterval(snapshotTimer);
           snapshotTimer = undefined;
           try {
@@ -570,6 +640,35 @@ window.__ModuleLoader__.load({
                 t('panel.forget'),
               )
             : null,
+          // A sign-in page is a dead end if the flow stalls (a provider that
+          // refuses the embedded context, a closed popup, a failed redirect). This
+          // is the way back that does not require closing the panel.
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dcx-web-panel__action',
+              title: t('panel.stuckHint'),
+              onClick: () => {
+                const element = guestRef.current;
+                if (element === null) {
+                  retry();
+                  return;
+                }
+                // Same synchronous-throw hazard as everywhere else a guest API is
+                // called: guard the call, not only its promise.
+                let navigating;
+                try {
+                  navigating = element.loadURL(CHAT_URL);
+                } catch {
+                  retry();
+                  return;
+                }
+                Promise.resolve(navigating).catch(() => retry());
+              },
+            },
+            t('panel.stuck'),
+          ),
           h(
             'button',
             { type: 'button', className: 'dcx-web-panel__action', onClick: () => openExternal(CHAT_URL) },

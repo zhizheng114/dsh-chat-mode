@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-mode",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "private": true,
   "description": "Adds a Chat/Work switch to the DeepSeek Harness top bar. Chat mode embeds the official chat.deepseek.com web chat in a Desktop webview panel, collapses the sidebar, and remembers the web sign-in across restarts, so conversations use the free web account instead of API credit.",
   "type": "module",
